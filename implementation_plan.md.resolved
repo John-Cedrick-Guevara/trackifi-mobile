@@ -1,0 +1,710 @@
+# TrackiFi — Comprehensive UI/UX Development Plan
+
+> **Platform**: Expo (React Native) + Web via Expo Router  
+> **Backend**: Cloudflare Workers (Hono v4) + Supabase (PostgreSQL + JWT Auth)  
+> **Current State**: Expo 55 project with minimal scaffolding
+
+---
+
+## STEP 1 — Backend-to-Frontend Feature Map
+
+### Core Domain Entities
+
+| Entity | DB Table | PK Field | Key Relationships |
+|--------|----------|----------|-------------------|
+| Account | `accounts` | `id` (UUID) | Owns transactions via `from_account_id` / `to_account_id` |
+| Transaction | `transactions` | `id` (UUID) | References accounts; stores income/expense/transfer |
+| Goal | `goals` | `uuid` | Linked to user savings; prediction uses transaction history |
+| Investment | `investments` | `uuid` | Has `investment_value_history`; cash-out creates income transaction |
+| Cash Flow (legacy) | `cash_flow` | `uuid` | Legacy quick entry; analytics reads from `transactions` |
+
+### Complete API → UI Feature Map
+
+| UI Feature | API Endpoint | Method | Notes |
+|------------|-------------|--------|-------|
+| **Authentication** | | | |
+| Sign Up | Supabase Auth SDK | — | `supabase.auth.signUp()` |
+| Sign In | Supabase Auth SDK | — | `supabase.auth.signInWithPassword()` |
+| Sign Out | Supabase Auth SDK | — | `supabase.auth.signOut()` |
+| Token Refresh | Supabase Auth SDK | — | `supabase.auth.refreshSession()` |
+| **Dashboard** | | | |
+| Today's Summary Card | `/api/cashflows/analytics/today` | GET | Returns `{ inflow, outflow }` |
+| Account Balances | `/api/accounts` | GET | Returns accounts with derived balances |
+| Recent Transactions | `/api/cashflows/analytics/recent` | GET | Last 20 transactions in legacy format |
+| Cash Flow Chart | `/api/cashflows/analytics/timeseries` | GET | `timeView`, `startDate`, `endDate` params |
+| **Accounts** | | | |
+| Account List | `/api/accounts` | GET | All accounts with computed balances |
+| Account Detail | `/api/accounts/:id` | GET | Single account without balance |
+| Account Balance | `/api/accounts/:id/balance` | GET | Derived balance only |
+| **Transactions** | | | |
+| Transaction List | `/api/transactions` | GET | Filters: `transaction_type`, `account_id`, date range, pagination |
+| Add Income | `/api/transactions/income` | POST | `{ amount, to_account_id, date?, category?, description? }` |
+| Add Expense | `/api/transactions/expense` | POST | `{ amount, from_account_id, date?, category?, description? }` |
+| Add Transfer | `/api/transactions/transfer` | POST | `{ amount, from_account_id, to_account_id, date?, description? }` |
+| Quick Entry (Legacy) | `/api/cashflows/quick-entry` | POST | `{ amount, type, category, selectedTags }` |
+| **Analytics** | | | |
+| Time Series Chart | `/api/cashflows/analytics/timeseries` | GET | Daily/weekly/monthly aggregation |
+| Category Breakdown | `/api/cashflows/analytics/by-category` | GET | Spending/income by category with percentages |
+| Today Summary | `/api/cashflows/analytics/today` | GET | Today's inflow vs. outflow |
+| **Goals** | | | |
+| Goal Prediction | `/api/goals/generate-prediction` | GET | `goalId` + `userId` → AI-powered forecast |
+| **Investments** | | | |
+| Portfolio List | `/api/investments` | GET | All investments with `absolute_gain`, `percentage_change` |
+| Investment Detail | `/api/investments/:id` | GET | Full value history included |
+| Create Investment | `/api/investments` | POST | Atomically creates record + expense transaction |
+| Record Value | `/api/investments/:id/value` | POST | Updates current value + adds history |
+| Cash Out | `/api/investments/:id/cashout` | POST | Reduces value + creates income transaction |
+| Delete Investment | `/api/investments/:id` | DELETE | Removes record |
+
+### Authentication Flow
+
+```
+Client → Supabase Auth SDK → JWT (access + refresh tokens)
+Client → TrackiFi API with `Authorization: Bearer <token>`
+API → Supabase `auth.getUser(token)` → RLS-scoped queries
+```
+
+- Access token expires in **1 hour**
+- Refresh token lasts **60 days**
+- On 401, auto-refresh and retry
+
+### Pagination Pattern
+
+- **Offset-based** for transactions: `limit` (default 20, max 100) + `offset`
+- Analytics endpoints return fixed-size or full results (no pagination)
+- No `meta` envelope currently; client must track pagination state
+
+### Error Handling Shapes
+
+| Source | Shape |
+|--------|-------|
+| App errors | `{ error: string }` |
+| Zod validation | `{ success: false, error: { issues: [...], name: "ZodError" } }` |
+| 404 catch-all | `{ error: "Not Found", path: string, method: string }` |
+| Server errors | `{ error: string, stack?: string }` |
+
+---
+
+## STEP 2 — Information Architecture
+
+### Primary Navigation (Bottom Tab Bar)
+
+```
+  Dashboard    Transactions    Analytics    Investments    More
+     🏠            💳            📊            📈          ⚙️
+```
+
+### Page Hierarchy
+
+#### 1. Dashboard (Home)
+- **Purpose**: Financial overview at a glance
+- **Backend Data**: `GET /accounts`, `GET /analytics/today`, `GET /analytics/recent`
+- **User Actions**: View balances, tap recent transactions, navigate to add transaction
+- **Primary Components**: Account balance cards, today's summary widget, recent transactions list, floating action button (FAB)
+
+#### 2. Transactions
+- **Purpose**: Full transaction history with filtering and creation
+- **Backend Data**: `GET /transactions` (with filters + pagination)
+- **User Actions**: Filter by type/date/account, scroll for pagination, create income/expense/transfer
+- **Primary Components**: Filter bar, transaction list with infinite scroll, type-segmented creation form
+
+#### 3. Analytics
+- **Purpose**: Visual insights into spending and earning patterns
+- **Backend Data**: `GET /analytics/timeseries`, `GET /analytics/by-category`
+- **User Actions**: Switch between daily/weekly/monthly views, toggle date ranges, switch income/expense in category view
+- **Primary Components**: Time series bar chart, category donut/pie chart, period selector
+
+#### 4. Investments
+- **Purpose**: Portfolio tracking with performance metrics
+- **Backend Data**: `GET /investments`, `GET /investments/:id`
+- **User Actions**: View portfolio, add investment, record value updates, cash out
+- **Primary Components**: Portfolio summary card, investment list with gain/loss indicators, value history chart, action sheet (record value / cash out)
+
+#### 5. Goals (Nested under More or separate tab)
+- **Purpose**: Savings goal tracking with AI-driven forecasts
+- **Backend Data**: `GET /goals/generate-prediction`
+- **User Actions**: View goals, check prediction, create/edit goals
+- **Primary Components**: Goal progress cards, prediction widget, goal creation form
+
+#### 6. Settings / Profile (Under More)
+- **Purpose**: App configuration, account info, sign out
+- **User Actions**: Sign out, manage preferences, view profile
+- **Primary Components**: Settings list, sign out button
+
+---
+
+## STEP 3 — User Experience Design
+
+### UX Principles
+
+| Principle | Application |
+|-----------|-------------|
+| **Financial Clarity** | Always show net position: total balance, today's net, gain/loss with + / − signs and color coding |
+| **Low Cognitive Load** | A single FAB for primary action (add transaction); contextual actions via bottom sheets, not modals stacked on modals |
+| **Motivational Progress** | Goal progress bars with percentage + estimated completion; green for on-track, amber for at-risk |
+| **Fast Data Entry** | Amount-first input with numpad; smart defaults for date (now), category (last used), and account (primary) |
+
+### Interaction Patterns
+
+#### Creating Transactions
+1. Tap FAB → Bottom sheet with type selector (Income / Expense / Transfer)
+2. Amount input with large numpad-style keyboard
+3. Account selector (auto-selected to primary account)
+4. Optional: category picker, description, date
+5. Swipe or tap to confirm → optimistic UI update → API call
+6. On success: toast confirmation. On error: inline error + retry
+
+#### Tracking Goals
+1. Goal card shows progress bar (`current_savings / target_amount`)
+2. Tap card → Detail view with prediction widget
+3. Prediction shows: "X months to go", estimated completion date
+4. Visual indicator: 🟢 On track / 🟡 At risk / 🔴 Unreachable
+
+#### Viewing Analytics
+1. Default: monthly time series (last 3 months)
+2. Swipe between periods or use segment control (daily/weekly/monthly)
+3. Tap chart segment → drill-down to transactions for that period
+4. Category view: donut chart with ranked list, tap category to filter transactions
+
+#### Managing Investments
+1. Portfolio summary: total value, total gain/loss, percentage change
+2. Each card: name, type badge, current value, gain with color
+3. Tap card → value history chart + action buttons
+4. "Record Value" → simple value input
+5. "Cash Out" → amount input with max validation
+
+### UX Rules
+
+| Rule | Implementation |
+|------|---------------|
+| **Inline editing** | Tap amount/name on detail screens to edit in-place |
+| **Smart defaults** | Date = now, category = last used, account = primary |
+| **Visual feedback** | Green = income/gain, Red = expense/loss, Blue = transfer, Amber = pending |
+| **Predictive insights** | Goal prediction widget; spending trend indicators on analytics |
+| **Haptic feedback** | Subtle haptics on successful transaction creation (mobile) |
+| **Skeleton loading** | Content placeholders during API fetches, not spinners |
+| **Pull to refresh** | Standard gesture to refresh all data on list screens |
+| **Error recovery** | Inline error messages with retry buttons; never dead-end screens |
+
+---
+
+## STEP 4 — Design System
+
+### Typography Scale
+
+| Token | Size | Weight | Use |
+|-------|------|--------|-----|
+| `display` | 32px | 700 (Bold) | Dashboard total balance |
+| `headline` | 24px | 600 (SemiBold) | Page titles, section headers |
+| `title` | 20px | 600 (SemiBold) | Card titles, list headers |
+| `body` | 16px | 400 (Regular) | Body text, descriptions |
+| `bodyBold` | 16px | 600 (SemiBold) | Amounts, emphasis |
+| `caption` | 14px | 400 (Regular) | Secondary info, timestamps |
+| `small` | 12px | 400 (Regular) | Labels, badges |
+
+**Font Family**: System default (SF Pro on iOS, Roboto on Android) for optimal native feel. On web: `Inter` via Google Fonts.
+
+### Color System
+
+#### Base Palette (Dark Theme Primary)
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `background` | `#0D0D0F` | App background |
+| `surface` | `#1A1A1E` | Cards, sheets |
+| `surfaceElevated` | `#242428` | Elevated cards, modals |
+| `border` | `#2A2A2E` | Dividers, borders |
+| `textPrimary` | `#FFFFFF` | Primary text |
+| `textSecondary` | `#9CA3AF` | Secondary text, labels |
+| `textTertiary` | `#6B7280` | Placeholder, disabled |
+
+#### Semantic / Financial Colors
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `income` / `gain` | `#22C55E` | Income amounts, positive gains |
+| `expense` / `loss` | `#EF4444` | Expense amounts, negative gains |
+| `transfer` | `#3B82F6` | Transfer indicators |
+| `savings` | `#8B5CF6` | Savings-related elements |
+| `warning` | `#F59E0B` | At-risk goals, warnings |
+| `accent` | `#6366F1` | Primary actions, interactive elements |
+| `accentLight` | `#818CF8` | Hover/focus states |
+
+#### Light Theme Overrides
+
+| Token | Hex |
+|-------|-----|
+| `background` | `#F9FAFB` |
+| `surface` | `#FFFFFF` |
+| `surfaceElevated` | `#F3F4F6` |
+| `border` | `#E5E7EB` |
+| `textPrimary` | `#111827` |
+| `textSecondary` | `#6B7280` |
+
+### Spacing System
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `xs` | 4px | Tight spacing, icon gaps |
+| `sm` | 8px | Inner card padding, inline gaps |
+| [md](file:///d:/2026%20Projects/trackifi-mobile/README.md) | 16px | Standard padding, list item spacing |
+| `lg` | 24px | Section spacing |
+| `xl` | 32px | Page top/bottom margins |
+| `2xl` | 48px | Major section separators |
+
+### Border Radius
+
+| Token | Value |
+|-------|-------|
+| `sm` | 8px |
+| [md](file:///d:/2026%20Projects/trackifi-mobile/README.md) | 12px |
+| `lg` | 16px |
+| `xl` | 24px |
+| `full` | 9999px |
+
+### Component Hierarchy
+
+#### Atoms (Primitives)
+- `Text` — Themed text with variant prop
+- `Button` — Primary, secondary, ghost, destructive variants
+- `Input` — Text input with label, error state
+- `Badge` — Status badges (income, expense, transfer, type)
+- `Icon` — Wrapped icon set (Expo Symbols)
+- `Divider` — Themed horizontal rule
+- `Avatar` — User/entity avatar with initials fallback
+
+#### Molecules (Composed)
+- `AmountDisplay` — Formatted currency with +/− prefix and color
+- `AccountCard` — Account name + type badge + balance
+- `TransactionRow` — Category icon + description + amount + date
+- `ProgressBar` — Linear progress with percentage label
+- `StatWidget` — Label + value + optional change indicator
+- `ChipFilter` — Filter tag with active/inactive states
+- `EmptyState` — Illustration + message + CTA button
+
+#### Organisms (Feature-Level)
+- `BalanceSummary` — Total balance across all accounts
+- `TodaySummaryCard` — Inflow vs. outflow for today
+- `TransactionList` — Infinite scrollable transaction list with grouping by date
+- `TimeSeriesChart` — Bar/area chart for inflow/outflow/savings
+- `CategoryPieChart` — Donut chart with ranked legend
+- `InvestmentCard` — Investment name + type + value + gain/loss
+- `GoalProgressCard` — Goal name + progress bar + prediction text
+- `TransactionForm` — Tabbed form for income/expense/transfer creation
+- `ValueHistoryChart` — Line chart for investment value over time
+
+#### Templates (Layouts)
+- `TabLayout` — Bottom tab bar with safe area
+- `PageLayout` — Scroll view with header + content
+- `BottomSheet` — Slide-up panel for forms and actions
+- `ModalCard` — Centered modal for confirmations
+
+---
+
+## STEP 5 — Frontend Architecture
+
+### Recommended Stack
+
+| Layer | Technology | Rationale |
+|-------|-----------|-----------|
+| **Framework** | Expo 55 + Expo Router | Already set up; supports web + iOS + Android |
+| **Language** | TypeScript (strict) | Type safety aligned with backend Zod schemas |
+| **State Management** | Zustand | Lightweight, minimal boilerplate, React Native friendly |
+| **Server State** | TanStack React Query v5 | Caching, auto-refetch, optimistic updates, infinite scroll |
+| **HTTP Client** | Custom `fetch` wrapper | Handles auth headers, token refresh, error normalization |
+| **Forms** | React Hook Form + Zod | Validates against same schemas as backend |
+| **Charts** | `react-native-gifted-charts` or `victory-native` | Cross-platform charting |
+| **Auth** | `@supabase/supabase-js` | Direct Supabase Auth integration |
+| **Storage** | `expo-secure-store` | Secure token persistence |
+
+### Folder Structure
+
+```
+src/
+├── app/                          # Expo Router pages (file-based routing)
+│   ├── (auth)/                   # Auth-gated layout group
+│   │   ├── _layout.tsx           # Tab navigator layout
+│   │   ├── index.tsx             # Dashboard (home tab)
+│   │   ├── transactions.tsx      # Transactions tab
+│   │   ├── analytics.tsx         # Analytics tab
+│   │   ├── investments/
+│   │   │   ├── index.tsx         # Investments list
+│   │   │   └── [id].tsx          # Investment detail
+│   │   ├── goals/
+│   │   │   ├── index.tsx         # Goals list
+│   │   │   └── [id].tsx          # Goal detail + prediction
+│   │   └── settings.tsx          # Settings / profile
+│   ├── (public)/                 # Unauthenticated pages
+│   │   ├── _layout.tsx           # Stack layout
+│   │   ├── login.tsx             # Sign in
+│   │   └── register.tsx          # Sign up
+│   └── _layout.tsx               # Root layout (auth guard, providers)
+│
+├── components/                   # Shared UI components
+│   ├── ui/                       # Atoms & primitives
+│   │   ├── Text.tsx
+│   │   ├── Button.tsx
+│   │   ├── Input.tsx
+│   │   ├── Badge.tsx
+│   │   ├── Divider.tsx
+│   │   └── ...
+│   ├── feedback/                 # Loading, error, empty states
+│   │   ├── Skeleton.tsx
+│   │   ├── EmptyState.tsx
+│   │   └── ErrorBoundary.tsx
+│   ├── layout/                   # Layout components
+│   │   ├── PageLayout.tsx
+│   │   ├── BottomSheet.tsx
+│   │   └── ModalCard.tsx
+│   └── charts/                   # Chart wrappers
+│       ├── TimeSeriesChart.tsx
+│       ├── CategoryPieChart.tsx
+│       └── ValueHistoryChart.tsx
+│
+├── features/                     # Feature modules (domain-grouped)
+│   ├── auth/
+│   │   ├── components/           # AuthGuard, LoginForm, RegisterForm
+│   │   ├── hooks/                # useAuth, useSession
+│   │   └── store.ts              # Auth Zustand store
+│   ├── accounts/
+│   │   ├── components/           # AccountCard, BalanceSummary
+│   │   └── hooks/                # useAccounts, useAccountBalance
+│   ├── transactions/
+│   │   ├── components/           # TransactionRow, TransactionList, TransactionForm
+│   │   └── hooks/                # useTransactions, useCreateTransaction
+│   ├── analytics/
+│   │   ├── components/           # TodaySummaryCard, TimeSeriesView, CategoryView
+│   │   └── hooks/                # useTodaySummary, useTimeSeries, useCategoryBreakdown
+│   ├── goals/
+│   │   ├── components/           # GoalProgressCard, PredictionWidget
+│   │   └── hooks/                # useGoalPrediction
+│   └── investments/
+│       ├── components/           # InvestmentCard, ValueHistoryView, CashOutSheet
+│       └── hooks/                # useInvestments, useInvestmentDetail, useCashOut
+│
+├── services/                     # API layer
+│   ├── api-client.ts             # Fetch wrapper with auth + retry logic
+│   ├── accounts.api.ts           # Account endpoints
+│   ├── transactions.api.ts       # Transaction endpoints
+│   ├── analytics.api.ts          # Analytics endpoints
+│   ├── goals.api.ts              # Goals endpoints
+│   └── investments.api.ts        # Investment endpoints
+│
+├── types/                        # Shared TypeScript types
+│   ├── accounts.ts
+│   ├── transactions.ts
+│   ├── analytics.ts
+│   ├── goals.ts
+│   ├── investments.ts
+│   └── api.ts                    # API response wrappers, error types
+│
+├── utils/                        # Utility functions
+│   ├── currency.ts               # Format currency (₱, $, etc.)
+│   ├── date.ts                   # Date formatting + relative time
+│   ├── validators.ts             # Zod schemas matching backend
+│   └── constants.ts              # API base URL, cache keys, categories list
+│
+├── hooks/                        # Global hooks
+│   ├── useColorScheme.ts         # Theme detection (exists)
+│   └── useTheme.ts               # Theme hook (exists)
+│
+├── constants/                    # Design tokens
+│   └── tokens.ts                 # Colors, spacing, typography
+│
+└── providers/                    # Context providers
+    ├── AuthProvider.tsx           # Supabase session management
+    ├── QueryProvider.tsx          # TanStack Query client
+    └── ThemeProvider.tsx          # Light/dark theme
+```
+
+---
+
+## STEP 6 — Data Integration Strategy
+
+### API Client Structure
+
+```typescript
+// services/api-client.ts
+class ApiClient {
+  private baseUrl: string;
+  private getToken: () => Promise<string | null>;
+
+  async request<T>(endpoint: string, options?: RequestInit): Promise<T>;
+  // Handles: auth headers, 401 retry with token refresh, error normalization
+}
+```
+
+### Query Hooks (TanStack React Query)
+
+| Hook | Endpoint | Query Key | Cache Time |
+|------|----------|-----------|------------|
+| `useAccounts()` | GET `/accounts` | `['accounts']` | 5 min |
+| `useAccountBalance(id)` | GET `/accounts/:id/balance` | `['accounts', id, 'balance']` | 1 min |
+| `useTransactions(filters)` | GET `/transactions` | `['transactions', filters]` | 2 min |
+| `useCreateIncome()` | POST `/transactions/income` | Invalidates `['accounts', 'transactions', 'analytics']` | — |
+| `useCreateExpense()` | POST `/transactions/expense` | Invalidates `['accounts', 'transactions', 'analytics']` | — |
+| `useCreateTransfer()` | POST `/transactions/transfer` | Invalidates `['accounts', 'transactions']` | — |
+| `useTodaySummary()` | GET `/analytics/today` | `['analytics', 'today']` | 30 sec |
+| `useRecentTransactions()` | GET `/analytics/recent` | `['analytics', 'recent']` | 2 min |
+| `useTimeSeries(params)` | GET `/analytics/timeseries` | `['analytics', 'timeseries', params]` | 10 min |
+| `useCategoryBreakdown(params)` | GET `/analytics/by-category` | `['analytics', 'category', params]` | 10 min |
+| `useGoalPrediction(goalId)` | GET `/goals/generate-prediction` | `['goals', goalId, 'prediction']` | 30 min |
+| `useInvestments()` | GET `/investments` | `['investments']` | 5 min |
+| `useInvestmentDetail(id)` | GET `/investments/:id` | `['investments', id]` | 5 min |
+| `useCreateInvestment()` | POST `/investments` | Invalidates `['investments', 'accounts', 'transactions']` | — |
+| `useRecordValue(id)` | POST `/investments/:id/value` | Invalidates `['investments']` | — |
+| `useCashOut(id)` | POST `/investments/:id/cashout` | Invalidates `['investments', 'accounts', 'transactions']` | — |
+| `useDeleteInvestment(id)` | DELETE `/investments/:id` | Invalidates `['investments']` | — |
+
+### Cache Invalidation Strategy
+
+Mutations automatically invalidate related queries:
+
+| Mutation | Invalidated Queries |
+|----------|-------------------|
+| Create Income | `accounts`, `transactions`, `analytics.today`, `analytics.recent` |
+| Create Expense | `accounts`, `transactions`, `analytics.today`, `analytics.recent`, `analytics.category` |
+| Create Transfer | `accounts`, `transactions` |
+| Create Investment | `investments`, `accounts`, `transactions` |
+| Cash Out Investment | `investments`, `accounts`, `transactions` |
+| Record Value | `investments` (detail + list) |
+| Delete Investment | `investments` |
+
+### Error Handling Strategy
+
+```typescript
+// types/api.ts
+type ApiError =
+  | { type: 'app'; error: string }
+  | { type: 'validation'; issues: ZodIssue[] }
+  | { type: 'auth'; error: string }
+  | { type: 'network'; error: Error };
+
+// Normalized by api-client.ts from raw API responses
+```
+
+---
+
+## STEP 7 — Page-by-Page Implementation Plan
+
+### 1. Login / Register Pages
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | Supabase Auth SDK (no TrackiFi API endpoints) |
+| **State** | Auth Zustand store: `{ session, user, isLoading, signIn, signUp, signOut }` |
+| **Components** | `LoginForm`, `RegisterForm`, `AuthGuard` |
+| **Interactions** | Email + password form → Supabase SDK → store session → redirect to dashboard |
+
+### 2. Dashboard
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | `GET /accounts`, `GET /analytics/today`, `GET /analytics/recent` |
+| **State** | React Query auto-managed; no local state needed |
+| **Components** | `BalanceSummary`, `TodaySummaryCard`, `RecentTransactionsList`, `FAB` |
+| **Interactions** | Pull to refresh, tap transaction → detail, tap FAB → add transaction sheet |
+
+### 3. Transactions
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | `GET /transactions` (with filters), `POST /transactions/income|expense|transfer` |
+| **State** | Filter state (local Zustand), pagination via React Query `useInfiniteQuery` |
+| **Components** | `FilterBar`, `TransactionList`, `TransactionForm` (in bottom sheet) |
+| **Interactions** | Type/date/account filters, infinite scroll, FAB → create form |
+
+### 4. Analytics
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | `GET /analytics/timeseries`, `GET /analytics/by-category` |
+| **State** | Local state for `timeView` and date range selection |
+| **Components** | `PeriodSelector`, `TimeSeriesChart`, `CategoryPieChart`, `CategoryRankList` |
+| **Interactions** | Toggle daily/weekly/monthly, change date range, switch income/expense in category view |
+
+### 5. Investments List
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | `GET /investments` |
+| **State** | React Query list |
+| **Components** | `PortfolioSummaryCard`, `InvestmentCard` list, `CreateInvestmentSheet` |
+| **Interactions** | Tap card → detail page, FAB → create investment |
+
+### 6. Investment Detail
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | `GET /investments/:id`, `POST .../value`, `POST .../cashout`, `DELETE ...` |
+| **State** | React Query detail |
+| **Components** | `ValueHistoryChart`, `GainLossSummary`, `RecordValueSheet`, `CashOutSheet` |
+| **Interactions** | View history chart, record value, cash out (with validation), delete with confirmation |
+
+### 7. Goals List
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | Goals CRUD (via Supabase direct or future API), `GET /goals/generate-prediction` |
+| **State** | React Query list + per-goal prediction |
+| **Components** | `GoalProgressCard` list, `CreateGoalSheet` |
+| **Interactions** | Tap card → detail with prediction, FAB → create goal |
+
+### 8. Goal Detail
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | `GET /goals/generate-prediction?goalId=X&userId=Y` |
+| **State** | React Query prediction (30 min cache) |
+| **Components** | `GoalProgressCard` (expanded), `PredictionWidget`, `GoalEditForm` |
+| **Interactions** | View prediction, refresh prediction, edit goal details |
+
+### 9. Settings
+
+| Aspect | Detail |
+|--------|--------|
+| **API** | `supabase.auth.signOut()` |
+| **State** | Auth store |
+| **Components** | Settings list (theme toggle, currency, notifications), Sign out button |
+| **Interactions** | Toggle theme, sign out with confirmation |
+
+---
+
+## STEP 8 — Mobile Compatibility Strategy
+
+### Responsive Layout
+
+| Strategy | Implementation |
+|----------|---------------|
+| **Expo Router** | Single codebase renders on iOS, Android, and Web |
+| **Platform-specific files** | [.web.tsx](file:///d:/2026%20Projects/trackifi-mobile/src/components/app-tabs.web.tsx) / `.native.tsx` suffix for divergent UI (already used in project) |
+| **Flex layout** | React Native `Flexbox` for all layouts (no CSS Grid needed) |
+| **Safe areas** | `react-native-safe-area-context` for notch/inset handling |
+| **Bottom sheet** | `@gorhom/bottom-sheet` on native, CSS bottom drawers on web |
+
+### Shared Design Tokens
+
+All design tokens (colors, spacing, typography, radii) defined in `src/constants/tokens.ts` and consumed via `useTheme()` hook. Tokens are **platform-agnostic** — no CSS variables on native, no `StyleSheet` on web (handled via [.web.tsx](file:///d:/2026%20Projects/trackifi-mobile/src/components/app-tabs.web.tsx) variants).
+
+### API Contract Consistency
+
+- Same TypeScript types in `src/types/` used by both web and mobile
+- API client auto-attaches auth headers regardless of platform
+- Token storage differs: `expo-secure-store` (native) vs `localStorage` (web)
+
+### Future React Native / Flutter Reuse
+
+| Reusable Layer | How |
+|----------------|-----|
+| Types (`src/types/`) | Copy directly to any TS-based client |
+| API service (`src/services/`) | Replace `fetch` with platform HTTP client |
+| Business logic / utils | Framework-agnostic, pure functions |
+| Design tokens | Export as JSON for Flutter `ThemeData` |
+
+---
+
+## STEP 9 — Development Roadmap
+
+### Phase 1 — Foundation (Week 1-2) — Complexity: ⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Design tokens | `src/constants/tokens.ts` — colors, typography, spacing |
+| Theme provider | `ThemeProvider` + `useTheme()` with dark/light mode |
+| Atom components | `Text`, `Button`, `Input`, `Badge`, `Divider` |
+| API client | `api-client.ts` with auth headers, retry, error normalization |
+| TypeScript types | All types from `src/types/` mirroring backend schemas |
+| Query provider | TanStack React Query client setup |
+
+### Phase 2 — Authentication (Week 3) — Complexity: ⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Supabase client | Initialize with `SUPABASE_URL` + `SUPABASE_ANON_KEY` |
+| Auth store | Zustand store: session, signIn, signUp, signOut |
+| AuthGuard | Route layout that redirects unauthenticated users |
+| Login page | Email + password form with validation |
+| Register page | Sign up form with email confirmation flow |
+| Token management | Auto-refresh via `onAuthStateChange`, secure storage |
+
+### Phase 3 — Dashboard (Week 4) — Complexity: ⭐⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Account hooks | `useAccounts()`, `useAccountBalance()` |
+| Analytics hooks | `useTodaySummary()`, `useRecentTransactions()` |
+| BalanceSummary | Total balance widget with account breakdown |
+| TodaySummaryCard | Today's inflow vs outflow |
+| RecentTransactions | Last 20 transactions list |
+| Dashboard page | Compose all widgets with pull-to-refresh |
+
+### Phase 4 — Transactions (Week 5-6) — Complexity: ⭐⭐⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Transaction hooks | `useTransactions()` with infinite query, `useCreateIncome()`, etc. |
+| TransactionRow | Row component with type color, category, amount, date |
+| TransactionList | Infinite scroll with date grouping |
+| FilterBar | Type, account, date range filters |
+| TransactionForm | Tabbed form (Income / Expense / Transfer) in bottom sheet |
+| Optimistic updates | Immediate UI update before API confirmation |
+
+### Phase 5 — Analytics (Week 7) — Complexity: ⭐⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Charter library setup | Install and configure charting library |
+| TimeSeriesChart | Bar chart with inflow/outflow/savings series |
+| CategoryPieChart | Donut chart with ranked category list |
+| Analytics hooks | `useTimeSeries()`, `useCategoryBreakdown()` |
+| Analytics page | Period selector + charts + drill-down |
+
+### Phase 6 — Goals (Week 8) — Complexity: ⭐⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Goal hooks | `useGoalPrediction()` |
+| GoalProgressCard | Progress bar + name + target |
+| PredictionWidget | AI-generated prediction text + estimated date |
+| Goal pages | List + detail with prediction |
+
+### Phase 7 — Investments (Week 9-10) — Complexity: ⭐⭐⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Investment hooks | `useInvestments()`, `useInvestmentDetail()`, mutations |
+| PortfolioSummary | Total value + total gain/loss |
+| InvestmentCard | Name + type + value + % change |
+| ValueHistoryChart | Line chart from value history |
+| Action sheets | Record value, cash out, delete confirmation |
+| Investment pages | List + detail |
+
+### Phase 8 — Polish & Settings (Week 11) — Complexity: ⭐⭐
+
+| Task | Detail |
+|------|--------|
+| Settings page | Theme toggle, sign out |
+| Loading states | Skeleton screens for all data-dependent pages |
+| Error boundaries | Per-page error recovery with retry |
+| Empty states | Illustrations + CTA for empty lists |
+| Haptic feedback | On successful mutations (native only) |
+| Animations | Page transitions, list animations via Reanimated |
+
+### Total Estimated Timeline: ~11 Weeks
+
+---
+
+## Verification Plan
+
+Since this is a **planning document** (not a code implementation), verification consists of:
+
+### Structural Verification
+- Confirm every backend endpoint documented in `docs/api/` has a corresponding entry in the Feature Map (Step 1)
+- Confirm all TypeScript interfaces in `09-data-models.md` have corresponding types in the `src/types/` plan
+- Confirm caching strategies match the recommended durations in `10-mobile-integration.md`
+
+### Manual Verification (User Review)
+- Review this plan for completeness, accuracy, and alignment with product vision
+- Verify navigation structure matches desired user flow
+- Confirm design system tokens match brand guidelines
+- Validate the phased roadmap against team capacity and priorities
