@@ -14,6 +14,9 @@ export type { ButtonProps, ButtonSize, ButtonVariant } from "./Button";
 export { Divider } from "./Divider";
 export type { DividerProps } from "./Divider";
 
+export { FAB } from "./FAB";
+export type { FABProps } from "./FAB";
+
 export { Input } from "./Input";
 export type { InputProps } from "./Input";
 

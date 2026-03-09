@@ -2,7 +2,7 @@
  * Transaction types — mirrors backend docs/api/09-data-models.md §10.3
  */
 
-export type TransactionType = "income" | "expense" | "transfer";
+export type TransactionType = "income" | "expense" | "transfer" | "allowance";
 
 export interface Transaction {
   id: string;

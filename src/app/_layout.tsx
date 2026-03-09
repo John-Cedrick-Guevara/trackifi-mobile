@@ -5,11 +5,14 @@ import {
 } from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import React, { useEffect } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 import { useAuthStore } from "@/features/auth/store";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { ThemeProvider, useThemeContext } from "@/providers/ThemeProvider";
+import { ToastProvider } from "@/providers/ToastProvider";
 
 // ---------------------------------------------------------------------------
 // Redirect based on auth state
@@ -66,10 +69,16 @@ function RootContent() {
 
 export default function RootLayout() {
   return (
-    <QueryProvider>
-      <ThemeProvider>
-        <RootContent />
-      </ThemeProvider>
-    </QueryProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryProvider>
+        <ThemeProvider>
+          <ErrorBoundary>
+            <ToastProvider>
+              <RootContent />
+            </ToastProvider>
+          </ErrorBoundary>
+        </ThemeProvider>
+      </QueryProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -8,11 +8,21 @@
 
 /**
  * Base URL for the TrackiFi backend API.
- * Change this per environment.
+ *
+ * Priority:
+ *  1. EXPO_PUBLIC_API_URL env variable (set this in .env.local)
+ *  2. Production deployment (non-dev builds)
+ *  3. Localhost fallback (dev, simulator only — won't work on physical devices)
+ *
+ * For physical device testing, set EXPO_PUBLIC_API_URL in .env.local to either:
+ *  - Your machine's LAN IP:  http://192.168.1.8:8787  (local wrangler dev)
+ *  - Production URL:         https://trackifi-api.trackifi.workers.dev
  */
-export const API_BASE_URL = __DEV__
-  ? "http://localhost:8787"
-  : "https://trackifi-api.trackifi.workers.dev";
+export const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ??
+  (__DEV__
+    ? "http://192.168.1.8:8787" //edit this to your machine's LAN IP for local testing on devices
+    : "https://trackifi-api.trackifi.workers.dev");
 
 // ---------------------------------------------------------------------------
 // React Query key factory

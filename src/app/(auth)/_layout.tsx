@@ -25,6 +25,8 @@ export default function AuthLayout() {
         <Tabs.Screen name="analytics" options={{ title: "Analytics" }} />
         <Tabs.Screen name="investments" options={{ title: "Investments" }} />
         <Tabs.Screen name="more" options={{ title: "More" }} />
+        <Tabs.Screen name="goals" options={{ href: null }} />
+        <Tabs.Screen name="settings" options={{ href: null }} />
       </Tabs>
     </AuthGuard>
   );
