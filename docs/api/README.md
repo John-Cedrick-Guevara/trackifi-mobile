@@ -10,18 +10,18 @@
 
 ## Table of Contents
 
-| #   | Section                                                                      | File                                   | Description                                        |
-| --- | ---------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------- |
-| 1   | [System Overview](./01-system-overview.md)                                   | `01-system-overview.md`                | Architecture, base URL, versioning, health check   |
-| 2   | [Authentication & Security](./02-authentication.md)                          | `02-authentication.md`                 | JWT flow, token validation, RLS, CORS              |
-| 3   | [Accounts Module](./03-accounts.md)                                          | `03-accounts.md`                       | Allowance & savings accounts with derived balances |
-| 4   | [Transactions Module](./04-transactions.md)                                  | `04-transactions.md`                   | Income, expense, transfer CRUD + filtering         |
-| 5   | [Cash Flow & Analytics](./05-cashflow-analytics.md)                          | `05-cashflow-analytics.md`             | Quick entry, today summary, timeseries, categories |
-| 6   | [Goals Module](./06-goals.md)                                                | `06-goals.md`                          | Savings goals + exponential smoothing forecasting  |
-| 7   | [Investments Module](./07-investments.md)                                    | `07-investments.md`                    | Portfolio tracking, value history, cash-out        |
-| 8   | [Errors, Pagination & Rate Limiting](./08-errors-pagination-ratelimiting.md) | `08-errors-pagination-ratelimiting.md` | Error formats, pagination, rate limits             |
-| 9   | [Data Models](./09-data-models.md)                                           | `09-data-models.md`                    | Complete TypeScript interfaces for all entities    |
-| 10  | [Mobile Integration](./10-mobile-integration.md)                             | `10-mobile-integration.md`             | Latency, caching, offline sync, idempotency        |
+| #   | Section                                                                      | File                                   | Description                                                                            |
+| --- | ---------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------- |
+| 1   | [System Overview](./01-system-overview.md)                                   | `01-system-overview.md`                | Architecture, base URL, versioning, health check                                       |
+| 2   | [Authentication & Security](./02-authentication.md)                          | `02-authentication.md`                 | JWT flow, token validation, RLS, CORS                                                  |
+| 3   | [Accounts Module](./03-accounts.md)                                          | `03-accounts.md`                       | Allowance & savings accounts with derived balances                                     |
+| 4   | [Transactions Module](./04-transactions.md)                                  | `04-transactions.md`                   | Income, expense, transfer CRUD + filtering                                             |
+| 5   | [Cash Flow & Analytics](./05-cashflow-analytics.md)                          | `05-cashflow-analytics.md`             | Quick entry, today summary, timeseries, categories                                     |
+| 6   | [Goals Module](./06-goals.md)                                                | `06-goals.md`                          | Contribution-based savings goals, allocation guards, exponential smoothing forecasting |
+| 7   | [Investments Module](./07-investments.md)                                    | `07-investments.md`                    | Portfolio tracking, value history, cash-out                                            |
+| 8   | [Errors, Pagination & Rate Limiting](./08-errors-pagination-ratelimiting.md) | `08-errors-pagination-ratelimiting.md` | Error formats, pagination, rate limits                                                 |
+| 9   | [Data Models](./09-data-models.md)                                           | `09-data-models.md`                    | Complete TypeScript interfaces for all entities                                        |
+| 10  | [Mobile Integration](./10-mobile-integration.md)                             | `10-mobile-integration.md`             | Latency, caching, offline sync, idempotency                                            |
 
 ---
 
@@ -67,9 +67,17 @@
 
 ### Goals
 
-| Method | Path                             | Auth | Description                |
-| ------ | -------------------------------- | ---- | -------------------------- |
-| `GET`  | `/api/goals/generate-prediction` | Yes  | AI-powered goal prediction |
+| Method   | Path                                           | Auth | Description                               |
+| -------- | ---------------------------------------------- | ---- | ----------------------------------------- |
+| `GET`    | `/api/goals`                                   | Yes  | List all goals with progress              |
+| `GET`    | `/api/goals/:id`                               | Yes  | Get single goal with progress             |
+| `POST`   | `/api/goals`                                   | Yes  | Create a new goal                         |
+| `PUT`    | `/api/goals/:id`                               | Yes  | Update a goal                             |
+| `DELETE` | `/api/goals/:id`                               | Yes  | Delete goal (cascades contributions)      |
+| `GET`    | `/api/goals/:id/contributions`                 | Yes  | List contributions for a goal             |
+| `POST`   | `/api/goals/:id/contributions`                 | Yes  | Add a contribution (allocation)           |
+| `DELETE` | `/api/goals/:id/contributions/:contributionId` | Yes  | Remove a contribution                     |
+| `GET`    | `/api/goals/:id/prediction`                    | Yes  | AI forecast from contribution time-series |
 
 ### Investments
 

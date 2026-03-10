@@ -78,13 +78,20 @@ export function TimeSeriesChart({ data }: TimeSeriesChartProps) {
         width={SCREEN_WIDTH - spacing.md * 4}
         height={200}
         yAxisTextStyle={{ color: colors.textTertiary, fontSize: 10 }}
-        xAxisLabelTextStyle={{ color: colors.textTertiary, fontSize: 9 }}
+        xAxisLabelTextStyle={{
+          color: colors.textTertiary,
+          fontSize: 9,
+          width: 50,
+          textAlign: "right",
+        }}
+        rotateLabel
         formatYLabel={(val: string) => formatCompactCurrency(Number(val))}
         yAxisColor={colors.border}
         xAxisColor={colors.border}
         hideRules
         barBorderRadius={3}
         isAnimated
+        labelsExtraHeight={30}
       />
 
       {/* Legend */}

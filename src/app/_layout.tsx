@@ -31,7 +31,7 @@ function AuthRedirect() {
     if (!isAuthenticated && !inPublicGroup) {
       router.replace("/(public)/login");
     } else if (isAuthenticated && inPublicGroup) {
-      router.replace("/(auth)/index");
+      router.replace("/(auth)");
     }
   }, [isAuthenticated, isLoading, segments, router]);
 

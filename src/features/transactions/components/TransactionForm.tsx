@@ -3,7 +3,7 @@
  */
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { z } from "zod";
@@ -110,6 +110,18 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
 
   const selectedCategory = watch("category");
 
+  // Reset form when transaction type changes
+  useEffect(() => {
+    reset({
+      amount: "" as unknown as number,
+      description: "",
+      category: "",
+      date: "",
+      to_account_id: "",
+      from_account_id: "",
+    });
+  }, [txnType, reset]);
+
   const categories =
     txnType === "income"
       ? DEFAULT_INCOME_CATEGORIES
@@ -123,17 +135,38 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
   const onSubmit = useCallback(
     async (data: Record<string, unknown>) => {
       try {
+        const amount = Number(data.amount);
+        const optionals: Record<string, string> = {};
+        if (data.description)
+          optionals.description = data.description as string;
+        if (data.category) optionals.category = data.category as string;
+        if (data.date) optionals.date = data.date as string;
+
         if (txnType === "income") {
-          await createIncome.mutateAsync(data as IncomeForm);
+          await createIncome.mutateAsync({
+            amount,
+            to_account_id: data.to_account_id as string,
+            ...optionals,
+          });
         } else if (txnType === "expense") {
-          await createExpense.mutateAsync(data as ExpenseForm);
+          await createExpense.mutateAsync({
+            amount,
+            from_account_id: data.from_account_id as string,
+            ...optionals,
+          });
         } else {
-          const d = data as TransferForm;
-          if (d.from_account_id === d.to_account_id) {
+          if (data.from_account_id === data.to_account_id) {
             Alert.alert("Invalid", "Source and destination must differ.");
             return;
           }
-          await createTransfer.mutateAsync(d);
+          await createTransfer.mutateAsync({
+            amount,
+            from_account_id: data.from_account_id as string,
+            to_account_id: data.to_account_id as string,
+            ...(optionals.description
+              ? { description: optionals.description }
+              : {}),
+          });
         }
         reset();
         await haptic("medium");

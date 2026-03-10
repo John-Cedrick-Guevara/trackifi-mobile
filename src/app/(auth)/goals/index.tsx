@@ -1,5 +1,8 @@
 /**
  * Goals list page.
+ *
+ * Progress is now sourced from `goal.current_amount` (server-computed
+ * from contributions) — no longer derived from savings account balances.
  */
 
 import { useRouter } from "expo-router";
@@ -14,11 +17,28 @@ import { BottomSheet } from "@/components/layout/BottomSheet";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { FAB } from "@/components/ui/FAB";
 import { Text } from "@/components/ui/Text";
-import { useAccounts } from "@/features/accounts/hooks";
 import { GoalForm, GoalProgressCard } from "@/features/goals/components";
-import { useGoals } from "@/features/goals/hooks";
+import { useGoalPrediction, useGoals } from "@/features/goals/hooks";
 import { useThemeContext } from "@/providers/ThemeProvider";
-import type { Goal } from "@/types/goals";
+import type { GoalWithProgress } from "@/types/goals";
+
+/** Wrapper that fetches prediction for a single goal card. */
+function GoalCardWithPrediction({
+  goal,
+  onPress,
+}: {
+  goal: GoalWithProgress;
+  onPress: () => void;
+}) {
+  const prediction = useGoalPrediction(goal.uuid);
+  return (
+    <GoalProgressCard
+      goal={goal}
+      prediction={prediction.data}
+      onPress={onPress}
+    />
+  );
+}
 
 export default function GoalsListScreen() {
   const { spacing } = useThemeContext();
@@ -26,23 +46,18 @@ export default function GoalsListScreen() {
   const [showForm, setShowForm] = useState(false);
 
   const goals = useGoals();
-  const accounts = useAccounts();
-
-  // Derive current savings from savings-type accounts
-  const currentSavings = useMemo(() => {
-    if (!accounts.data) return 0;
-    return accounts.data
-      .filter((a) => a.type === "savings")
-      .reduce((sum, a) => sum + a.balance, 0);
-  }, [accounts.data]);
 
   // Sort: active first, then by end_date
   const sorted = useMemo(() => {
     if (!goals.data) return [];
     return [...goals.data].sort((a, b) => {
-      const aActive = (a.status ?? "active") === "active" ? 0 : 1;
-      const bActive = (b.status ?? "active") === "active" ? 0 : 1;
+      const aActive = a.status === "active" ? 0 : 1;
+      const bActive = b.status === "active" ? 0 : 1;
       if (aActive !== bActive) return aActive - bActive;
+      // Goals without end_date sort last
+      if (!a.end_date && !b.end_date) return 0;
+      if (!a.end_date) return 1;
+      if (!b.end_date) return -1;
       return new Date(a.end_date).getTime() - new Date(b.end_date).getTime();
     });
   }, [goals.data]);
@@ -52,19 +67,18 @@ export default function GoalsListScreen() {
   }, [goals]);
 
   const renderItem = useCallback(
-    ({ item, index }: { item: Goal; index: number }) => (
+    ({ item, index }: { item: GoalWithProgress; index: number }) => (
       <Animated.View
         entering={FadeInDown.delay(index * 60).duration(300)}
         style={{ marginBottom: spacing.md }}
       >
-        <GoalProgressCard
+        <GoalCardWithPrediction
           goal={item}
-          currentSavings={currentSavings}
           onPress={() => router.push(`/(auth)/goals/${item.uuid}` as any)}
         />
       </Animated.View>
     ),
-    [currentSavings, router, spacing.md],
+    [router, spacing.md],
   );
 
   if (goals.isLoading) {

@@ -1,5 +1,8 @@
 /**
  * Goal progress card with animated progress bar.
+ *
+ * Uses `GoalWithProgress` — `current_amount` is server-computed
+ * from contributions, not derived from account balances.
  */
 
 import React, { useEffect } from "react";
@@ -13,12 +16,13 @@ import Animated, {
 import { Badge } from "@/components/ui/Badge";
 import { Text } from "@/components/ui/Text";
 import { useThemeContext } from "@/providers/ThemeProvider";
-import type { Goal, GoalStatus } from "@/types/goals";
+import type { GoalStatus, GoalWithProgress, PredictionResult } from "@/types/goals";
 import { formatCurrency } from "@/utils/currency";
+import { formatDate } from "@/utils/date";
 
 interface GoalProgressCardProps {
-  goal: Goal;
-  currentSavings: number;
+  goal: GoalWithProgress;
+  prediction?: PredictionResult;
   onPress?: () => void;
 }
 
@@ -39,12 +43,17 @@ function getProgressColor(pct: number): string {
 
 export function GoalProgressCard({
   goal,
-  currentSavings,
+  prediction,
   onPress,
 }: GoalProgressCardProps) {
   const { colors, spacing, radius, shadows } = useThemeContext();
 
-  const pct = goal.amount > 0 ? Math.min(currentSavings / goal.amount, 1) : 0;
+  const currentAmount = goal.current_amount ?? 0;
+  const pct =
+    goal.target_amount > 0
+      ? Math.min(currentAmount / goal.target_amount, 1)
+      : 0;
+  const remaining = Math.max(goal.target_amount - currentAmount, 0);
   const progressColor = getProgressColor(pct);
   const pctLabel = `${Math.round(pct * 100)}% reached`;
 
@@ -58,8 +67,18 @@ export function GoalProgressCard({
     backgroundColor: progressColor,
   }));
 
-  const status = (goal.status ?? "active") as GoalStatus;
+  const status = goal.status as GoalStatus;
   const sb = STATUS_BADGE[status];
+
+  // Prediction summary line
+  let predictionLine: string | null = null;
+  if (prediction) {
+    if (prediction.monthsNeeded != null && prediction.estimatedCompletionDate) {
+      predictionLine = `🎯 ${prediction.monthsNeeded}mo to go · Est. ${formatDate(prediction.estimatedCompletionDate)}`;
+    } else if (prediction.prediction) {
+      predictionLine = prediction.prediction;
+    }
+  }
 
   return (
     <Pressable
@@ -88,10 +107,24 @@ export function GoalProgressCard({
         </View>
       </View>
 
-      {/* Target amount */}
-      <Text variant="bodyBold" style={{ marginTop: spacing.sm }}>
-        {formatCurrency(goal.amount)}
-      </Text>
+      {/* Amount info */}
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginTop: spacing.sm,
+        }}
+      >
+        <Text variant="bodyBold">
+          {formatCurrency(currentAmount)} / {formatCurrency(goal.target_amount)}
+        </Text>
+        <Text variant="small" color="textSecondary">
+          {remaining > 0
+            ? `${formatCurrency(remaining)} left`
+            : "Target reached!"}
+        </Text>
+      </View>
 
       {/* Progress bar */}
       <View
@@ -117,6 +150,27 @@ export function GoalProgressCard({
       >
         {pctLabel}
       </Text>
+
+      {/* Target date (optional) */}
+      {goal.end_date ? (
+        <Text
+          variant="small"
+          color="textSecondary"
+          style={{ marginTop: spacing.xs }}
+        >
+          Target: {formatDate(goal.end_date)}
+        </Text>
+      ) : null}
+
+      {/* Prediction summary */}
+      {predictionLine && (
+        <Text
+          variant="small"
+          style={{ color: colors.accent, marginTop: spacing.xs }}
+        >
+          {predictionLine}
+        </Text>
+      )}
     </Pressable>
   );
 }

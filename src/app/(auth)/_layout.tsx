@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import React from "react";
 
@@ -20,13 +21,53 @@ export default function AuthLayout() {
           tabBarInactiveTintColor: colors.textTertiary,
         }}
       >
-        <Tabs.Screen name="index" options={{ title: "Dashboard" }} />
-        <Tabs.Screen name="transactions" options={{ title: "Transactions" }} />
-        <Tabs.Screen name="analytics" options={{ title: "Analytics" }} />
-        <Tabs.Screen name="investments" options={{ title: "Investments" }} />
-        <Tabs.Screen name="more" options={{ title: "More" }} />
-        <Tabs.Screen name="goals" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "Dashboard",
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="grid-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="goals"
+          options={{
+            title: "Goals",
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="flag-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="analytics"
+          options={{
+            title: "Analytics",
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="bar-chart-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="investments"
+          options={{
+            title: "Investments",
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="trending-up-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="settings-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen name="transactions" options={{ href: null }} />
+        <Tabs.Screen name="more" options={{ href: null }} />
       </Tabs>
     </AuthGuard>
   );

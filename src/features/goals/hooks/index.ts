@@ -1,21 +1,35 @@
 /**
  * React Query hooks for Goals.
+ *
+ * @see docs/api/06-goals.md
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useAuthStore } from "@/features/auth/store";
 import {
+  createContribution,
   createGoal,
+  deleteContribution,
   deleteGoal,
+  getContributions,
+  getGoal,
   getGoalPrediction,
   getGoals,
   updateGoal,
 } from "@/services/goals.api";
-import type { CreateGoalPayload, UpdateGoalPayload } from "@/types/goals";
+import type {
+  CreateContributionPayload,
+  CreateGoalPayload,
+  PredictionInterval,
+  UpdateGoalPayload,
+} from "@/types/goals";
 import { QueryKeys } from "@/utils/constants";
 
-/** Fetch all goals for the current user. staleTime: 5 min */
+// ---------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------
+
+/** Fetch all goals with `current_amount`. staleTime: 5 min */
 export function useGoals() {
   return useQuery({
     queryKey: QueryKeys.goals,
@@ -24,15 +38,13 @@ export function useGoals() {
   });
 }
 
-/** Fetch AI prediction for a goal. staleTime: 30 min, enabled only with goalId */
-export function useGoalPrediction(goalId: string | undefined) {
-  const userId = useAuthStore((s) => s.user?.id);
+/** Fetch a single goal with `current_amount`. staleTime: 5 min */
+export function useGoal(goalId: string | undefined) {
   return useQuery({
-    queryKey: QueryKeys.goalPrediction(goalId ?? ""),
-    queryFn: () => getGoalPrediction(goalId!, userId!),
-    enabled: !!goalId && !!userId,
-    staleTime: 30 * 60 * 1000,
-    retry: false,
+    queryKey: QueryKeys.goalDetail(goalId ?? ""),
+    queryFn: () => getGoal(goalId!),
+    enabled: !!goalId,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -47,13 +59,15 @@ export function useCreateGoal() {
   });
 }
 
-/** Update a goal. Invalidates goals list. */
+/** Update a goal. Invalidates goals list + detail. */
 export function useUpdateGoal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: UpdateGoalPayload) => updateGoal(payload),
-    onSuccess: () => {
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateGoalPayload }) =>
+      updateGoal(id, payload),
+    onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: QueryKeys.goals });
+      qc.invalidateQueries({ queryKey: QueryKeys.goalDetail(id) });
     },
   });
 }
@@ -66,5 +80,85 @@ export function useDeleteGoal() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QueryKeys.goals });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Contributions
+// ---------------------------------------------------------------------------
+
+/** Fetch all contributions for a goal. staleTime: 2 min */
+export function useContributions(goalId: string | undefined) {
+  return useQuery({
+    queryKey: QueryKeys.goalContributions(goalId ?? ""),
+    queryFn: () => getContributions(goalId!),
+    enabled: !!goalId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/** Add a contribution. Invalidates contributions, goal detail, and goals list. */
+export function useCreateContribution() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      goalId,
+      payload,
+    }: {
+      goalId: string;
+      payload: CreateContributionPayload;
+    }) => createContribution(goalId, payload),
+    onSuccess: (_data, { goalId }) => {
+      qc.invalidateQueries({
+        queryKey: QueryKeys.goalContributions(goalId),
+      });
+      qc.invalidateQueries({ queryKey: QueryKeys.goalDetail(goalId) });
+      qc.invalidateQueries({ queryKey: QueryKeys.goals });
+      qc.invalidateQueries({
+        queryKey: QueryKeys.goalPrediction(goalId),
+      });
+    },
+  });
+}
+
+/** Remove a contribution. Invalidates contributions, goal detail, and goals list. */
+export function useDeleteContribution() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      goalId,
+      contributionId,
+    }: {
+      goalId: string;
+      contributionId: string;
+    }) => deleteContribution(goalId, contributionId),
+    onSuccess: (_data, { goalId }) => {
+      qc.invalidateQueries({
+        queryKey: QueryKeys.goalContributions(goalId),
+      });
+      qc.invalidateQueries({ queryKey: QueryKeys.goalDetail(goalId) });
+      qc.invalidateQueries({ queryKey: QueryKeys.goals });
+      qc.invalidateQueries({
+        queryKey: QueryKeys.goalPrediction(goalId),
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Prediction
+// ---------------------------------------------------------------------------
+
+/** Fetch AI prediction for a goal. staleTime: 30 min */
+export function useGoalPrediction(
+  goalId: string | undefined,
+  interval: PredictionInterval = "monthly",
+) {
+  return useQuery({
+    queryKey: QueryKeys.goalPrediction(goalId ?? ""),
+    queryFn: () => getGoalPrediction(goalId!, interval),
+    enabled: !!goalId,
+    staleTime: 30 * 60 * 1000,
+    retry: false,
   });
 }

@@ -1,5 +1,9 @@
 /**
  * AI prediction insight widget for a goal.
+ *
+ * Updated for the new `PredictionResult` shape from docs/api/06-goals.md.
+ * Error cases are returned as 400 responses — the hook puts them in
+ * `isError` / `error`, not inside the data payload.
  */
 
 import React from "react";
@@ -8,11 +12,11 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Skeleton } from "@/components/feedback/Skeleton";
 import { Text } from "@/components/ui/Text";
 import { useThemeContext } from "@/providers/ThemeProvider";
-import type { PredictionResponse } from "@/types/goals";
+import type { PredictionResult } from "@/types/goals";
 import { formatDate } from "@/utils/date";
 
 interface PredictionWidgetProps {
-  prediction: PredictionResponse | undefined;
+  prediction: PredictionResult | undefined;
   isLoading: boolean;
   isError: boolean;
   errorMessage?: string;
@@ -59,29 +63,32 @@ export function PredictionWidget({
   let subtext = "";
 
   if (isError) {
-    // Parse common backend error messages
+    // Parse common backend error messages (returned as 400)
     const msg = errorMessage ?? "";
-    if (msg.includes("Not enough data")) {
+    if (msg.includes("Not enough contribution data")) {
       icon = "📊";
       headline = "Need more data";
-      detail = "Add at least 4 transactions so we can forecast your progress.";
+      detail =
+        "Add more contributions so we can forecast your progress.";
+    } else if (msg.includes("already reached")) {
+      icon = "🎉";
+      headline = "Goal already reached!";
+      detail = "Congratulations — you've hit your target.";
     } else if (msg.includes("unreachable")) {
       icon = "⚠️";
       headline = "Goal may not be reachable";
       detail =
-        "Based on current spending habits, consider adjusting your target or timeline.";
+        "Based on current contribution trends, consider adjusting your target or timeline.";
+    } else if (msg.includes("10 years")) {
+      icon = "⏳";
+      headline = "Very long timeline";
+      detail =
+        "At the current pace this goal would take over 10 years. Try increasing your contributions.";
     } else {
       icon = "⚠️";
       headline = "Prediction unavailable";
       detail = "We couldn't generate a forecast right now. Try again later.";
     }
-  } else if (
-    prediction?.success &&
-    prediction.prediction === "Goal already reached"
-  ) {
-    icon = "🎉";
-    headline = "Goal already reached!";
-    detail = "Congratulations — you've hit your target.";
   } else if (prediction) {
     const months = prediction.monthsNeeded ?? 0;
     headline = `${months} month${months === 1 ? "" : "s"} to go`;

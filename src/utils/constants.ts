@@ -49,6 +49,9 @@ export const QueryKeys = {
 
   // Goals
   goals: ["goals"] as const,
+  goalDetail: (goalId: string) => ["goals", goalId] as const,
+  goalContributions: (goalId: string) =>
+    ["goals", goalId, "contributions"] as const,
   goalPrediction: (goalId: string) => ["goals", goalId, "prediction"] as const,
 
   // Investments

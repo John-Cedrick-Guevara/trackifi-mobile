@@ -1,31 +1,39 @@
 /**
- * Goal detail page with prediction and actions.
+ * Goal detail page with prediction, contributions, and actions.
+ *
+ * Per docs/api/06-goals.md §6.8:
+ * - On goal tap: fetch contributions and prediction in parallel
+ * - Display prediction with fallback on 400
+ * - Support adding/removing contributions
  */
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 
+import { QueryError } from "@/components/feedback/QueryError";
 import { Skeleton } from "@/components/feedback/Skeleton";
 import { BottomSheet } from "@/components/layout/BottomSheet";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
-import { useAccounts } from "@/features/accounts/hooks";
 import {
+  AddContributionSheet,
+  ContributionList,
   GoalForm,
   GoalProgressCard,
   PredictionWidget,
 } from "@/features/goals/components";
 import {
   useDeleteGoal,
+  useGoal,
   useGoalPrediction,
-  useGoals,
 } from "@/features/goals/hooks";
 import { useThemeContext } from "@/providers/ThemeProvider";
 import { useToast } from "@/providers/ToastProvider";
 import { QueryKeys } from "@/utils/constants";
+import { formatCurrency } from "@/utils/currency";
 import { formatDate } from "@/utils/date";
 import { haptic } from "@/utils/haptics";
 
@@ -37,24 +45,14 @@ export default function GoalDetailScreen() {
   const toast = useToast();
 
   const [showEdit, setShowEdit] = useState(false);
+  const [showAddContribution, setShowAddContribution] = useState(false);
 
-  const goals = useGoals();
-  const accounts = useAccounts();
+  // Fetch goal detail, prediction, and contributions in parallel (hooks fire together)
+  const goalQuery = useGoal(id);
+  const prediction = useGoalPrediction(id);
   const deleteGoal = useDeleteGoal();
 
-  const goal = useMemo(
-    () => goals.data?.find((g) => g.uuid === id),
-    [goals.data, id],
-  );
-
-  const currentSavings = useMemo(() => {
-    if (!accounts.data) return 0;
-    return accounts.data
-      .filter((a) => a.type === "savings")
-      .reduce((sum, a) => sum + a.balance, 0);
-  }, [accounts.data]);
-
-  const prediction = useGoalPrediction(id);
+  const goal = goalQuery.data;
 
   const handleRefreshPrediction = useCallback(() => {
     qc.invalidateQueries({ queryKey: QueryKeys.goalPrediction(id!) });
@@ -76,7 +74,7 @@ export default function GoalDetailScreen() {
     ]);
   }, [deleteGoal, id, router, toast]);
 
-  if (goals.isLoading || !goal) {
+  if (goalQuery.isLoading) {
     return (
       <PageLayout>
         <Skeleton height={140} style={{ marginBottom: spacing.md }} />
@@ -86,10 +84,31 @@ export default function GoalDetailScreen() {
     );
   }
 
+  if (goalQuery.isError || !goal) {
+    return (
+      <PageLayout>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => router.back()}
+          style={{ alignSelf: "flex-start", marginBottom: spacing.sm }}
+        >
+          ← Back
+        </Button>
+        <QueryError
+          error={goalQuery.error}
+          onRetry={() => goalQuery.refetch()}
+        />
+      </PageLayout>
+    );
+  }
+
   const errorMsg =
     prediction.error && typeof prediction.error === "object"
       ? (prediction.error as { message?: string }).message
       : undefined;
+
+  const remaining = Math.max(goal.target_amount - (goal.current_amount ?? 0), 0);
 
   return (
     <PageLayout>
@@ -104,7 +123,7 @@ export default function GoalDetailScreen() {
       </Button>
 
       {/* Progress card */}
-      <GoalProgressCard goal={goal} currentSavings={currentSavings} />
+      <GoalProgressCard goal={goal} prediction={prediction.data} />
 
       <View style={{ height: spacing.lg }} />
 
@@ -143,15 +162,37 @@ export default function GoalDetailScreen() {
           </Text>
         ) : null}
         <Text variant="caption" color="textSecondary">
-          Start: {formatDate(goal.start_date)}
+          Target: {formatCurrency(goal.target_amount)}
         </Text>
         <Text variant="caption" color="textSecondary">
-          End: {formatDate(goal.end_date)}
+          Remaining: {formatCurrency(remaining)}
         </Text>
+        <Text variant="caption" color="textSecondary">
+          Start: {formatDate(goal.start_date)}
+        </Text>
+        {goal.end_date ? (
+          <Text variant="caption" color="textSecondary">
+            Target date: {formatDate(goal.end_date)}
+          </Text>
+        ) : null}
         <Text variant="caption" color="textSecondary">
           Type: {goal.type === "saving" ? "Saving" : "Spending"}
         </Text>
       </View>
+
+      <View style={{ height: spacing.lg }} />
+
+      {/* Contributions section */}
+      <ContributionList goalId={goal.uuid} />
+
+      <View style={{ height: spacing.md }} />
+
+      <Button
+        variant="secondary"
+        onPress={() => setShowAddContribution(true)}
+      >
+        + Add Contribution
+      </Button>
 
       <View style={{ height: spacing.lg }} />
 
@@ -177,8 +218,20 @@ export default function GoalDetailScreen() {
 
       <View style={{ height: spacing.xl }} />
 
+      {/* Edit sheet */}
       <BottomSheet visible={showEdit} onClose={() => setShowEdit(false)}>
         <GoalForm editGoal={goal} onSuccess={() => setShowEdit(false)} />
+      </BottomSheet>
+
+      {/* Add contribution sheet */}
+      <BottomSheet
+        visible={showAddContribution}
+        onClose={() => setShowAddContribution(false)}
+      >
+        <AddContributionSheet
+          goal={goal}
+          onSuccess={() => setShowAddContribution(false)}
+        />
       </BottomSheet>
     </PageLayout>
   );

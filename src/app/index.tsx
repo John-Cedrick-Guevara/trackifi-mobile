@@ -14,7 +14,7 @@ export default function Index() {
     if (isLoading) return;
 
     if (isAuthenticated) {
-      router.replace("/(auth)");
+      router.replace("/(auth)"); // this should redirect the user in the dashboard
     } else {
       router.replace("/(public)/login");
     }
